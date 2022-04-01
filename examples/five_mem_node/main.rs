@@ -18,6 +18,9 @@ use regex::Regex;
 
 use slog::{error, info, o};
 
+const NUM_NODES: u64 = 2;
+const NUM_PROPOSALS: u16 = 3;
+
 fn main() {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::FullFormat::new(decorator).build().fuse();
@@ -28,7 +31,6 @@ fn main() {
         .fuse();
     let logger = slog::Logger::root(drain, o!());
 
-    const NUM_NODES: u32 = 5;
     // Create 5 mailboxes to send/receive messages. Every node holds a `Receiver` to receive
     // messages from others, and uses the respective `Sender` to send messages to others.
     let (mut tx_vec, mut rx_vec) = (Vec::new(), Vec::new());
@@ -119,9 +121,9 @@ fn main() {
     // Put 100 key-value pairs.
     info!(
         logger,
-        "We get a 5 nodes Raft cluster now, now propose 100 proposals"
+        "We get a {NUM_NODES} nodes Raft cluster now, now propose {NUM_PROPOSALS} proposals"
     );
-    (0..100u16)
+    (0..NUM_PROPOSALS)
         .filter(|i| {
             let (proposal, rx) = Proposal::normal(*i, "hello, world".to_owned());
             proposals.lock().unwrap().push_back(proposal);
@@ -131,7 +133,7 @@ fn main() {
         })
         .count();
 
-    info!(logger, "Propose 100 proposals success!");
+    info!(logger, "Propose {NUM_PROPOSALS} proposals success!");
 
     // Send terminate signals
     for _ in 0..NUM_NODES {
@@ -357,6 +359,7 @@ fn example_config() -> Config {
 fn is_initial_msg(msg: &Message) -> bool {
     let msg_type = msg.get_msg_type();
     msg_type == MessageType::MsgRequestVote
+        || msg_type == MessageType::MsgAppend
         || msg_type == MessageType::MsgRequestPreVote
         || (msg_type == MessageType::MsgHeartbeat && msg.commit == 0)
 }
@@ -419,10 +422,10 @@ fn propose(raft_group: &mut RawNode<MemStorage>, proposal: &mut Proposal) {
 
 // Proposes some conf change for peers [2, 5].
 fn add_all_followers(proposals: &Mutex<VecDeque<Proposal>>) {
-    for i in 2..6u64 {
+    for i in 2..=NUM_NODES {
         let mut conf_change = ConfChange::default();
         conf_change.node_id = i;
-        conf_change.set_change_type(ConfChangeType::AddNode);
+        conf_change.set_change_type(ConfChangeType::AddLearnerNode);
         loop {
             let (proposal, rx) = Proposal::conf_change(&conf_change);
             proposals.lock().unwrap().push_back(proposal);

@@ -216,26 +216,9 @@ impl MemStorageCore {
     fn snapshot(&self) -> Snapshot {
         let mut snapshot = Snapshot::default();
 
-        // We assume all entries whose indexes are less than `hard_state.commit`
-        // have been applied, so use the latest commit index to construct the snapshot.
-        // TODO: This is not true for async ready.
+        // We don't assume anything and return persisted snapshot.
         let meta = snapshot.mut_metadata();
-        meta.index = self.raft_state.hard_state.commit;
-        meta.term = match meta.index.cmp(&self.snapshot_metadata.index) {
-            cmp::Ordering::Equal => self.snapshot_metadata.term,
-            cmp::Ordering::Greater => {
-                let offset = self.entries[0].index;
-                self.entries[(meta.index - offset) as usize].term
-            }
-            cmp::Ordering::Less => {
-                panic!(
-                    "commit {} < snapshot_metadata.index {}",
-                    meta.index, self.snapshot_metadata.index
-                );
-            }
-        };
-
-        meta.set_conf_state(self.raft_state.conf_state.clone());
+        *meta = self.snapshot_metadata.clone();
         snapshot
     }
 
@@ -443,11 +426,7 @@ impl Storage for MemStorage {
             core.trigger_snap_unavailable = false;
             Err(Error::Store(StorageError::SnapshotTemporarilyUnavailable))
         } else {
-            let mut snap = core.snapshot();
-            if snap.get_metadata().index < request_index {
-                snap.mut_metadata().index = request_index;
-            }
-            Ok(snap)
+            Ok(core.snapshot())
         }
     }
 }
